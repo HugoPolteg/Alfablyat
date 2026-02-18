@@ -27,18 +27,18 @@ def validate_placement(tiles_played, old_tile_positions, is_first_move, board_di
     if is_first_move:
         if len(tiles_played) == 1:
             tile = tiles_played[0]
-            return {'valid': False, 'error': 'Går ej att spela enskiljd bricka som första ord'}
+            return {'valid': False, 'reason': 'Går ej att spela enskiljd bricka som första ord!'}
         placed_in_middle = False
         for tile in tiles_played:
             if tile["row"] == math.floor(board_dimensions[0]/2) and tile["col"] == math.floor(board_dimensions[1]/2):
                 placed_in_middle = True
         if not placed_in_middle:
-            return False
+            return {'valid': False, 'reason': 'Ingen bricka placerad i mitten!'}
     else:
         if len(tiles_played) == 1:
             tile = tiles_played[0]
             if not has_adjacent_tile(tile['row'], tile['col'], old_tile_positions):
-                return {'valid': False, 'error': 'Enskild bricka måste placeras bredvid existerande ord'}
+                return {'valid': False, 'reason': 'Enskild bricka måste placeras bredvid existerande ord!'}
             
 
     rows = [tile['row'] for tile in tiles_played]
@@ -67,7 +67,7 @@ def validate_placement(tiles_played, old_tile_positions, is_first_move, board_di
                 break
         
         if not has_connection:
-            return {'valid': False, 'error': 'New tiles must connect to existing words'}
+            return {'valid': False, 'reason': 'Nya brickor måste placeras vid existerande ord!'}
         
     return {'valid': True, 'reason' : None}
 
@@ -80,7 +80,7 @@ def extract_word_from_board(origin_tile, all_tile_positions, horizontal):
         horizontal: Bool, whether or not the word is placed horizontally
     
     Returns:
-        str or None
+        dict or None
     """
     if horizontal:
         row = origin_tile['row']
@@ -95,9 +95,11 @@ def extract_word_from_board(origin_tile, all_tile_positions, horizontal):
             return None
         else:
             word = ""
+            tiles = []
             for i in range(min_index, max_index+1):
                 word += all_tile_positions[row][i]["letter"]
-            return word
+                tiles.append({"value": all_tile_positions[row][i]["value"], "col": i, "row": row})
+            return {"word": word, "tiles": tiles}
 
     else:
         col = origin_tile['col']
@@ -112,9 +114,11 @@ def extract_word_from_board(origin_tile, all_tile_positions, horizontal):
             return None
         else:
             word = ""
+            tiles = []
             for i in range(min_index, max_index+1):
                 word += all_tile_positions[i][col]["letter"]
-            return word
+                tiles.append({"value": all_tile_positions[i][col]["value"], "col": col, "row": i})
+            return {"word": word, "tiles": tiles}
         
 
 
@@ -127,7 +131,7 @@ def extract_words_from_board(tiles_played, old_tile_positions):
         old_tile_positions: 2D array of dicts representing the game board, position of old tiles
     
     Returns:
-        List of word dicts: [{'word': str, 'tiles': [...], 'direction': 'H'/'V'}, ...]
+        Dict with list of word dicts: {main_word: str, words : [{'word': str, 'tiles': [{"letter": str, "col": int, "row" : int}]]}
     """
     temp_board = [row[:] for row in old_tile_positions]  # Deep copy
     for tile in tiles_played:
@@ -137,17 +141,25 @@ def extract_words_from_board(tiles_played, old_tile_positions):
         }
     rows = [tile['row'] for tile in tiles_played]
     horizontal = len(set(rows)) == 1
+    if len(tiles_played) == 1:
+        if extract_word_from_board(tiles_played[0], temp_board, True) is None:
+            horizontal = False
     main_word = ""
-    other_words = []
+    words = []
     if horizontal:
-        main_word = extract_word_from_board(tiles_played[0], temp_board, True)
+        word = extract_word_from_board(tiles_played[0], temp_board, True)
+        main_word = word['word']
+        words.append(word)
         for tile in tiles_played:
             perp_word = extract_word_from_board(tile, temp_board, False)
             if perp_word is not None:
-                other_words.append(perp_word)
+                words.append(perp_word)
     else:
-        main_word = extract_word_from_board(tiles_played[0], temp_board, False)
+        word = extract_word_from_board(tiles_played[0], temp_board, False)
+        main_word = word['word']
+        words.append(word)
         for tile in tiles_played:
             perp_word = extract_word_from_board(tile, temp_board, True)
             if perp_word is not None:
-                other_words.append(perp_word)
+                words.append(perp_word)
+    return [main_word, words]

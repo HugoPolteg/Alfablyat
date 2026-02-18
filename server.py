@@ -2,9 +2,14 @@ import xml.etree.ElementTree as ET
 import random
 import uuid
 from flask import Flask, jsonify, request, render_template, session
+import socketio
 from datetime import datetime
 from game_logic import validate_placement, extract_words_from_board
+import eventlet
 games = {}
+rooms = {}
+players = {}
+placed_tiles = []
 LETTER_TO_BONUS = {
     "N" : None,
     "S" : None,
@@ -44,14 +49,18 @@ def load_dictionary() -> dict:
     tree = ET.parse("dictionary.xml")
     root = tree.getroot()
     for word in root.findall("word"):
-        value = word.get("value").lower()
+        value = word.get("value").upper()
         word_class = word.get("class")
         comment = word.get("comment")
         lang = word.get("lang")
         translation_el = word.find("translation")
         translation = translation_el.get("value") if translation_el is not None else ""
-        sw_dictionary[value] = {"class" : word_class, "comment" : comment,
-            "language" : lang, "translation" : translation}
+        if value in sw_dictionary:
+            sw_dictionary[value].append({"class" : word_class, "comment" : comment,
+                "language" : lang, "translation" : translation})
+        else:
+            sw_dictionary[value] = [{"class" : word_class, "comment" : comment,
+                "language" : lang, "translation" : translation}]
         if(word_class == "vb"):
             inflection_cont = word.find("paradigm")
             if inflection_cont is not None:
@@ -62,6 +71,9 @@ def load_dictionary() -> dict:
     return sw_dictionary
 
 def get_brickbag():
+    """Generates and returns a bag of bricks
+    Returns:
+        brick_bag : list of dicts with id : int, letter : str and value : int"""
     bricks = {
         "D": {"Value": 1, "Number": 7},
         "O": {"Value": 2, "Number": 5},
@@ -96,94 +108,118 @@ def get_brickbag():
         #"DownRightArrow": {"Value": 0, "Number": 2},
         #"UpRightArrow": {"Value": 0, "Number": 2},
     }
-
+    brick_id = 0
     brickBag = []
     for  key, value in bricks.items():
         for i in range(value["Number"]):
-            brickBag.append([key, value["Value"]])
+            brickBag.append({"id": f"Brick{brick_id}", "letter" : key, "value": value["Value"]})
+            brick_id += 1
     random.shuffle(brickBag)
     return brickBag
 
-def create_game(player_name):
+def draw(old_bricks, game_id, player_index):
+    """Draws nr_bricks bricks from the bag of game_id
+    Args:
+        old_bricks: array of old bricks : [{'id' : int, 'value' : int, 'letter' : str}]
+        game_id: int
+    Returns:
+        array of dicts"""
+    game_state = games[game_id]
+    brick_bag = game_state['brick_bag']
+    hand = [brick_bag.pop() for _ in range(len(old_bricks))]
+    old_hand = game_state['players'][player_index]['hand']
+    new_hand = [brick for brick in old_hand if brick not in old_bricks] + hand
+    game_state['players'][player_index]['hand'] = new_hand
+    games[game_id] = game_state
+    return new_hand
+
+def create_game(player_name, sid):
     """Create a new game instance"""
     game_id = str(uuid.uuid4())[:8]
     brick_bag = get_brickbag()
     
     # Draw initial hand for first player
-    hand = [brick_bag.pop() for _ in range(7)]
+    hand = [brick_bag.pop() for _ in range(8)]
     
     game_state = {
         'game_id': game_id,
         'players': [{
-            'id': str(uuid.uuid4())[:8],
+            'id': sid,
             'name': player_name,
             'hand': hand,
             'score': 0
         }],
-        'current_player': 0,
+        'current_player': sid,
+        'turn' : 0,
         'brick_bag': brick_bag,
         'board' : BOARD17_17,
         'brick_positions' : [[None for _ in range(17)] for _ in range(17)],
         'game_started': False,
         'game_over': False,
+        'first_move' : True,
         'created_at': datetime.now().isoformat()
     }
+    players[sid] = player_name
+    games[game_id] = game_state
+    rooms[sid] = game_id
+    return game_state
+
+def join_game(player_name, game_id, sid):
+    """Join a game with id game_id"""
+    if game_id not in games:
+        return None
+    game_state = games[game_id]
+    brick_bag = game_state['brick_bag']
+    hand = [brick_bag.pop() for _ in range(8)]
+    game_state["players"].append({
+        'id':sid,
+        'name':player_name,
+        'hand': hand,
+        'score' : 0
+    })
+    players[sid] = player_name
+    games[game_id] = game_state
+    rooms[sid] = game_id
+    return game_state
+
+def next_turn(game_id):
+    """Changes turn to next player"""
+    if game_id not in games:
+        return None
+    game_state = games[game_id]
+    game_state['first_move'] = False
+    game_state['turn'] += 1
+    player_index = game_state['turn'] % len(game_state['players'])
+    player_id = game_state['players'][player_index]['id']
+    game_state['current_player'] = player_id
+    player_name = game_state['players'][player_index]['name']
+    print(player_name + "s runda!")   
     games[game_id] = game_state
     return game_state
 
-def join_game(game_id, player_name):
-    """Adds a player to an existing game"""
+
+def update_board(tiles_played, game_id):
+    """Updates the board with the new tiles played"""
     if game_id not in games:
         return None
-    
-    game = games[game_id]
-    
-    # Check if game already started or full
-    if game['game_started']:
-        return {'error': 'Game already started'}
-    if len(game['players']) >= 4:  # Max 4 players
-        return {'error': 'Game is full'}
-    
-    # Draw hand for new player
-    hand = [game['brick_bag'].pop() for _ in range(7)]
-    
-    player = {
-        'id': str(uuid.uuid4())[:8],
-        'name': player_name,
-        'hand': hand,
-        'score': 0
-    }
-    
-    game['players'].append(player)
-    return game
+    game_state = games[game_id]
+    for tile in tiles_played:
+        game_state['brick_positions'][tile['row']][tile['col']] = tile
+    games[game_id] = game_state
+    return game_state
 
-def start_game(game_id):
-    """Mark game as started"""
-    if game_id not in games:
-        return None
-    
-    game = games[game_id]
-    if len(game['players']) < 2:
-        return {'error': 'Need at least 2 players'}
-    
-    game['game_started'] = True
-    return game
-
-def validate_word(word, dictionary):
-    """Check if word exists in dictionary"""
-    return word.lower() in dictionary
-
-def caluclate_word_score(tiles_played, board=BOARD17_17):
+def calculate_word_score(tiles_played, board=BOARD17_17):
     """Calculates the score for a word and bonuses
     Args:
-        tiles_played = array of tile positions and values [((1, 3), 4)]
+        tiles_played = array of tile positions and values [{col:int, row:int, value:int}]
+    Returns:
+        score:int
     """
     word_multiplier = 1
     score = 0
     for tile in tiles_played:
-        tile_position = tile[0]
-        tile_value = tile[1]
-        board_tile = board[tile_position[0]][tile_position[1]]
+        tile_value = int(tile['value'])
+        board_tile = board[tile['row']][tile['col']]
         if LETTER_TO_BONUS[board_tile] is not None:
             match LETTER_TO_BONUS[board_tile]:
                 case "2L":
@@ -202,163 +238,108 @@ def caluclate_word_score(tiles_played, board=BOARD17_17):
     score *= word_multiplier
     return score
 
+def update_tiles(new_tiles):
+    """Updates placed tiles with new ones"""
+    placed_tiles.extend(new_tiles)
+    return placed_tiles
 
+sio = socketio.Server(cors_allowed_origins="*")
 app = Flask(__name__)
+app.wsgi_app = socketio.WSGIApp(sio, app.wsgi_app)
 @app.route('/')
 def index():
     return render_template("index.html")
-@app.route('/api/game/create', methods=['POST'])
-def api_create_game():
-    """Create a new game"""
-    data = request.json
-    print(request.json)
-    player_name = data.get('player_name', 'Player 1')
-    
-    game = create_game(player_name)
+
+@sio.event
+def create(sid, data):
+    '''Creates a new game'''
+    game = create_game(player_name=data["player_name"], sid=sid)
     player_id = game['players'][0]['id']
-    
-    return jsonify({
-        'game_id': game['game_id'],
-        'player_id': player_id,
-        'status': 'waiting_for_players'
-    })
+    sio.enter_room(sid, game["game_id"])
+    return {"ok" : True, "gameId" : game["game_id"], "playerId":player_id}
 
-@app.route('/api/game/<game_id>/join', methods=['POST'])
-def api_join_game(game_id):
-    """Join an existing game"""
-    data = request.json
-    player_name = data.get('player_name', f'Player {len(games.get(game_id, {}).get("players", [])) + 1}')
-    
-    result = join_game(game_id, player_name)
-    
-    if result is None:
-        return jsonify({'error': 'Game not found'}), 404
-    if 'error' in result:
-        return jsonify(result), 400
-    
-    player_id = result['players'][-1]['id']
-    return jsonify({
-        'game_id': game_id,
-        'player_id': player_id,
-        'status': 'joined'
-    })
+@sio.event
+def join(sid, data):
+    """Joins a game"""
+    game = join_game(player_name=data["player_name"], game_id=data["join_id"], sid=sid)
+    if game:
+        sio.enter_room(sid, game["game_id"])
+        player_id = game['players'][-1]['id']
+        return {"ok" : True, "gameId" : game["game_id"], "playerId" : player_id}
+    return {"ok" : False}
 
-@app.route('/api/game/<game_id>/start', methods=['POST'])
-def api_start_game(game_id):
-    """Start the game"""
-    result = start_game(game_id)
-    
-    if result is None:
-        return jsonify({'error': 'Game not found'}), 404
-    if 'error' in result:
-        return jsonify(result), 400
-    
-    return jsonify({'status': 'game_started'})
+@sio.event
+def start(sid):
+    """Starts a agame"""
+    if sid in rooms:
+        game = games[rooms[sid]]
+        if not game["game_started"]:
+            for player in game['players']:
+                sio.emit(
+                    "start",
+                    {"board" : game["board"], "brickPositions" : game["brick_positions"], "hand" : player["hand"],
+                     "currentPlayerName" : players[game['current_player']], "currentPlayerID" : game['current_player']},
+                    to=player['id']
+                )
+            return {"ok" : True}
+        else:
+            return {"ok" : False}
+    else:
+        return {"ok" : False}
 
-@app.route('/api/game/<game_id>/state', methods=['GET'])
-def api_game_state(game_id):
-    """Get current game state"""
-    player_id = request.args.get('player_id')
-    
-    if game_id not in games:
-        return jsonify({'error': 'Game not found'}), 404
-    
-    game = games[game_id]
-    
-    # Create a safe copy that only shows current player's hand
-    safe_state = {
-        'game_id': game['game_id'],
-        'players': [],
-        'current_player': game['current_player'],
-        'board': game['board'],
-        "brick_positions" : game["brick_positions"],
-        'game_started': game['game_started'],
-        'game_over': game['game_over'],
-        'tiles_remaining': len(game['brick_bag'])
-    }
-    
-    # Add player info, but only show hand for requesting player
-    for player in game['players']:
-        player_info = {
-            'id': player['id'],
-            'name': player['name'],
-            'score': player['score'],
-            'tiles_count': len(player['hand'])
-        }
-        if player['id'] == player_id:
-            player_info['hand'] = player['hand']
-        safe_state['players'].append(player_info)
-    
-    return jsonify(safe_state)
-@app.route('/api/game/<game_id>/play', methods=['POST'])
-def api_play_word(game_id):
-    """Submit a word/move"""
-    data = request.json
-    player_id = data.get('player_id')
-    tiles_played = data.get('tiles')  # [{row, col, letter, value}, ...]
-    
-    if game_id not in games:
-        return jsonify({'error': 'Game not found'}), 404
-    
-    game = games[game_id]
-    
-    # Validate it's player's turn
-    current_player = game['players'][game['current_player']]
-    if current_player['id'] != player_id:
-        return jsonify({'error': 'Not your turn'}), 400
-    
-    # TODO: Add full word validation logic here
-    # - Check tiles form valid word(s)
-    # - Verify placement rules
-    # - Check dictionary
-    
-    # Calculate score
-    score = caluclate_word_score(tiles_played, game['board'])
-    current_player['score'] += score
-    
-    # Place tiles on board
-    for tile in tiles_played:
-        game['board'][tile['row']][tile['col']] = {
-            'letter': tile['letter'],
-            'value': tile['value']
-        }
-        # Remove from player's hand
-        current_player['hand'] = [t for t in current_player['hand'] 
-                                  if not (t['letter'] == tile['letter'] and t['value'] == tile['value'])]
-    
-    # Draw new tiles
-    tiles_to_draw = min(len(tiles_played), len(game['brick_bag']))
-    for _ in range(tiles_to_draw):
-        if game['brick_bag']:
-            current_player['hand'].append(game['brick_bag'].pop())
-    
-    # Move to next player
-    game['current_player'] = (game['current_player'] + 1) % len(game['players'])
-    
-    return jsonify({
-        'status': 'success',
-        'score': score,
-        'new_total': current_player['score']
-    })
-@app.route('/api/game/<game_id>/pass', methods=['POST'])
-def api_pass_turn(game_id):
-    """Pass turn"""
-    data = request.json
-    player_id = data.get('player_id')
-    
-    if game_id not in games:
-        return jsonify({'error': 'Game not found'}), 404
-    
-    game = games[game_id]
-    
-    current_player = game['players'][game['current_player']]
-    if current_player['id'] != player_id:
-        return jsonify({'error': 'Not your turn'}), 400
-    
-    # Move to next player
-    game['current_player'] = (game['current_player'] + 1) % len(game['players'])
-    
-    return jsonify({'status': 'passed'})
+@sio.event
+def play_word(sid, data):
+    if sid in rooms:
+        game_id = rooms[sid]
+        game = games[game_id]
+        if sid != game['current_player']:
+            return {"ok" : True, "valid" : False, "reason" : f"{players[game['current_player']]} tur! Vänta innan du spelar."}
+        selected_tiles = data["selectedTiles"]
+        for tile in selected_tiles:
+            tile['col'] = int(tile['col'])
+            tile['row'] = int(tile['row'])
+        result = validate_placement(selected_tiles, game["brick_positions"], game["first_move"])
+        print(result)
+        if result["valid"]:
+            main_word, extracted_words = extract_words_from_board(selected_tiles, game['brick_positions'])
+            for extracted_word in extracted_words:
+                word = extracted_word['word']
+                if word in dictionary:
+                    print(dictionary[word])
+                else:
+                    return {"ok" : True, "valid" : False, "reason" : f"{word} är inte ett svenskt ord."}
+            game_state = update_board(tiles_played=selected_tiles, game_id=game_id)
+            
+            score = 0
+            for word in extracted_words:
+                played_tiles = word['tiles']
+                word_played  = word['word']
+                score += calculate_word_score(played_tiles)
+                print(f"Spelade {word_played} för {calculate_word_score(played_tiles)} poäng")
+            hand = draw(old_bricks=selected_tiles, game_id=game_id, player_index=game_state['turn'] % len(game_state['players']))
+            game_state = next_turn(game_id)
+            
+            sio.emit(
+                "update",
+                {
+                    'currentPlayerID' : game_state['current_player'],
+                    'currentPlayerName' : players[game_state['current_player']],
+                    'brickPositions' : game_state['brick_positions'],
+                    'placedBricks' : update_tiles(selected_tiles)
+                }, room=rooms[sid]
+            )
+            return {"ok" : True, "valid" : True, "score" : score, "msg": f"Spelade {main_word} för {score} poäng", "hand" : hand}
+        else:
+            return {"ok" : True, "valid" : False, "reason" : result['reason']}
+
+        
+    else:
+        return {"ok" : False}
+dictionary = {}
+@sio.event
+def connect(sid, environ):
+    print("Connected:", sid)
+
 if __name__ == '__main__':
     # Load dictionary on startup
     print("Loading Swedish dictionary...")
@@ -369,4 +350,5 @@ if __name__ == '__main__':
         print(f"Warning: Could not load dictionary: {e}")
         dictionary = {}
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    
+    eventlet.wsgi.server(eventlet.listen(("0.0.0.0", 5000)), app)

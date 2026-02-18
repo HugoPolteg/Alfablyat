@@ -16,7 +16,7 @@ body {
 h1 {
     position: absolute;
     top: -1vw;
-    right: 15vw;
+    right: 4vw;
     font-size: 5vw;
     transform:
     perspective(75em)
@@ -56,7 +56,14 @@ sub {
     justify-content: center;
     align-items: center;
 }
-
+#game {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+}
 .tile {
     width: 2.5vw;
     height: 2.5vw;

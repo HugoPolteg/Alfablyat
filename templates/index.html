@@ -3,10 +3,11 @@
     <head>
         <meta charset="UTF-8">
         <script src="{{ url_for('static', filename='js/script.js') }}" defer></script>
+        <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
         <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     </head>
     <body>
-        <h1>ALFAPET</h1>
+        <h1>ALFABLYAT</h1>
         <div id = "game" style="display: none;">
             <div id = boardOuterEdge>
                 <div id = boardInnerEdge>
@@ -15,6 +16,9 @@
                 </div>
             </div>
             <div id = "table">
+                <h2 id = "current-player-display"></h2>
+                <h2 id = "game-id-display"></h2>
+                <h2 id = "player-name-display"></h2>
                 <div id = "bricks"></div>
                 <div id = "buttons">
                     <img src="{{ url_for('static', filename='images/shuffle.png') }}" id = "shuffle"></img>
