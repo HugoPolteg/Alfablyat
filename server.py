@@ -1,3 +1,5 @@
+import eventlet
+eventlet.monkey_patch()
 import xml.etree.ElementTree as ET
 import random
 import uuid
@@ -5,7 +7,7 @@ from flask import Flask, jsonify, request, render_template, session
 import socketio
 from datetime import datetime
 from game_logic import validate_placement, extract_words_from_board
-import eventlet
+
 games = {}
 rooms = {}
 players = {}
