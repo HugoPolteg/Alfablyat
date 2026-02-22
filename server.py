@@ -7,7 +7,10 @@ from flask import Flask, jsonify, request, render_template, session
 import socketio
 from datetime import datetime
 from game_logic import validate_placement, extract_words_from_board
-
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DICT_PATH = os.path.join(BASE_DIR, "dictionary.xml")
+WORDS_PATH = "/etc/secrets/messages.txt"
 games = {}
 rooms = {}
 players = {}
@@ -49,7 +52,7 @@ BOARD17_17 = [
 def load_dictionary() -> dict:
     '''Loads a swedish-english dictionary'''
     sw_dictionary = {}
-    tree = ET.parse("dictionary.xml")
+    tree = ET.parse(DICT_PATH)
     root = tree.getroot()
     for word in root.findall("word"):
         value = word.get("value").upper()
@@ -75,7 +78,11 @@ def load_dictionary() -> dict:
                 else:
                     sw_dictionary[value] = [{"class" : word_class, "comment" : comment,
                         "language" : lang, "translation" : translation}]
-                
+    with open(WORDS_PATH, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                sw_dictionary[line.strip()] = {"class" : "unknown", "comment" : "unknown",
+                        "language" : "unknown", "translation" : "unknown"}
     return sw_dictionary
 
 def get_brickbag():
@@ -291,7 +298,7 @@ def join(sid, data):
 
 @sio.event
 def start(sid):
-    """Starts a agame"""
+    """Starts a a game"""
     if sid in rooms:
         game = games[rooms[sid]]
         if not game["game_started"]:
