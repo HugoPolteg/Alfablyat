@@ -108,7 +108,7 @@ def extract_word_from_board(origin_tile, all_tile_positions, horizontal):
         max_index = origin_index
         while min_index > 0 and all_tile_positions[min_index - 1][col] is not None:
             min_index -= 1
-        while max_index < len(all_tile_positions) and all_tile_positions[max_index + 1][col] is not None:
+        while max_index < len(all_tile_positions) - 1 and all_tile_positions[max_index + 1][col] is not None:
             max_index += 1
         if min_index == max_index:
             return None

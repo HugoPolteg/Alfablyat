@@ -1,5 +1,5 @@
-import eventlet
-eventlet.monkey_patch()
+from gevent import monkey
+monkey.patch_all()
 import xml.etree.ElementTree as ET
 import random
 import uuid
@@ -8,6 +8,9 @@ import socketio
 from datetime import datetime
 from game_logic import validate_placement, extract_words_from_board
 import os
+
+
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DICT_PATH = os.path.join(BASE_DIR, "dictionary.xml")
 WORDS_PATH = "/etc/secrets/messages.txt"
@@ -121,7 +124,7 @@ def get_brickbag():
         "X": {"Value": 10, "Number": 1},
         "P": {"Value": 3, "Number": 3},
         "V": {"Value": 4, "Number": 2},
-        "Z": {"Value": 10, "Number": 1},
+        "Z": {"Value": 8, "Number": 2},
         "J": {"Value": 8, "Number": 1},
         "U": {"Value": 3, "Number": 3},
         "Q": {"Value": 10, "Number": 1},
@@ -277,7 +280,7 @@ def update_tiles(new_tiles):
     placed_tiles.extend(new_tiles)
     return placed_tiles
 
-sio = socketio.Server(cors_allowed_origins="*")
+sio = socketio.Server(async_mode='gevent', cors_allowed_origins="*")
 app = Flask(__name__)
 app.wsgi_app = socketio.WSGIApp(sio, app.wsgi_app)
 @app.route('/')
@@ -299,6 +302,11 @@ def join(sid, data):
     if game:
         sio.enter_room(sid, game["game_id"])
         player_id = game['players'][-1]['id']
+        sio.emit(
+            "join",
+            {"players" : [player['name'] for player in game['players']]},
+            room=game["game_id"]
+        )
         return {"ok" : True, "gameId" : game["game_id"], "playerId" : player_id}
     return {"ok" : False}
 
@@ -307,6 +315,10 @@ def start(sid):
     """Starts a a game"""
     if sid in rooms:
         game = games[rooms[sid]]
+        game_players = game['players']
+        random.shuffle(game_players)
+        game['players'] = game_players
+        games[rooms[sid]] = game
         if not game["game_started"]:
             for player in game['players']:
                 sio.emit(
@@ -445,4 +457,8 @@ def connect(sid, environ):
     print("Connected:", sid)
 
 if __name__ == '__main__':
-    eventlet.wsgi.server(eventlet.listen(("0.0.0.0", 5000)), app)
+    from gevent import pywsgi
+    from geventwebsocket.handler import WebSocketHandler
+    print("Starting server on http://0.0.0.0:5000")
+    server = pywsgi.WSGIServer(("0.0.0.0", 5000), app, handler_class=WebSocketHandler)
+    server.serve_forever()

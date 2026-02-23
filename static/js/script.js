@@ -470,6 +470,17 @@ socket.on("start", (start) => {
     showGameScreen()
 })
 
+socket.on("join", (join) => {
+    console.log(join.players[0])
+    let playerList = document.getElementById("player-list")
+    playerList.replaceChildren()
+    join.players.forEach(player => {
+        let playerText = document.createElement("div");
+        playerText.innerText = player
+        playerList.append(playerText)
+    })
+})
+
 socket.on("update", (update) => {
     currentPlayerName = update.currentPlayerName
     currentPos = update.brickPositions
