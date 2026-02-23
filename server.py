@@ -81,11 +81,14 @@ def load_dictionary() -> dict:
                 else:
                     sw_dictionary[value] = [{"class" : word_class, "comment" : comment,
                         "language" : lang, "translation" : translation}]
-    with open(WORDS_PATH, encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                sw_dictionary[line.strip()] = {"class" : "unknown", "comment" : "unknown",
-                        "language" : "unknown", "translation" : "unknown"}
+    try:
+        with open(WORDS_PATH, encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    sw_dictionary[line.strip()] = {"class" : "unknown", "comment" : "unknown",
+                            "language" : "unknown", "translation" : "unknown"}
+    except Exception as e:
+        print("Could not find custom words!")
     return sw_dictionary
 
 def get_brickbag():
@@ -129,7 +132,7 @@ def get_brickbag():
     brick_id = 0
     brickBag = []
     for  key, value in bricks.items():
-        for i in range(value["Number"]):
+        for i in range(value["Number"]-5):
             brickBag.append({"id": f"Brick{brick_id}", "letter" : key, "value": value["Value"]})
             brick_id += 1
     random.shuffle(brickBag)
@@ -335,6 +338,9 @@ def pass_turn(sid, data):
         for player in game['players']:
             scores.append((player['score'], player['name']))
         scores.sort(reverse=True)
+        if game['end_turn'] < 0 and len(game['brick_bag']) == 0:
+            game['end_turn'] = game['turn'] + len(game['players']) + 1
+            games[game_id] = game
         if game['end_turn'] == game['turn']:
             sio.emit(
                 "game_end", {
@@ -349,10 +355,11 @@ def pass_turn(sid, data):
                 'currentPlayerName' : players[game['current_player']],
                 'brickPositions' : game['brick_positions'],
                 'placedBricks' : update_tiles(selected_tiles),
-                'scoreBoard' : scores
+                'scoreBoard' : scores,
+                "msg": f"{players[sid]} gav upp {len(selected_tiles)} brickor för nya."
             }, room=rooms[sid]
         )
-        return {"ok" : True, "valid" : True, "hand" : hand, "msg": f"Gav upp {len(selected_tiles)} brickor för nya",}
+        return {"ok" : True, "valid" : True, "hand" : hand,}
     else:
         return {"ok" : False}
     
@@ -396,7 +403,7 @@ def play_word(sid, data):
             scores.sort(reverse=True)
             print(len(game['brick_bag']))
             if game['end_turn'] < 0 and len(game['brick_bag']) == 0:
-                game['end_turn'] = game['turn'] + len(game['players'])
+                game['end_turn'] = game['turn'] + len(game['players']) + 1
                 games[game_id] = game
             if game['end_turn'] == game['turn']:
                 sio.emit(
@@ -404,9 +411,8 @@ def play_word(sid, data):
                         'scoreBoard' : scores
                     }
                 )
-                return {"ok" : True, "valid" : True, "score" : score, "msg": f"Spelade {main_word} för {score} poäng", "hand" : hand}
+                return {"ok" : True, "valid" : True, "score" : score, "hand" : hand}
             game_state = next_turn(game_id, False)
-            
             sio.emit(
                 "update",
                 {
@@ -414,7 +420,8 @@ def play_word(sid, data):
                     'currentPlayerName' : players[game_state['current_player']],
                     'brickPositions' : game_state['brick_positions'],
                     'placedBricks' : update_tiles(selected_tiles),
-                    'scoreBoard' : scores
+                    'scoreBoard' : scores,
+                    "msg": f"{players[sid]} spelade {main_word} för {score} poäng"
                 }, room=rooms[sid]
             )
             return {"ok" : True, "valid" : True, "score" : score, "msg": f"Spelade {main_word} för {score} poäng", "hand" : hand}

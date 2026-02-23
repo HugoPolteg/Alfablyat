@@ -26,7 +26,7 @@
                 <div id = "buttons">
                     <img src="{{ url_for('static', filename='images/shuffle.png') }}" id = "shuffle" class="actionButton"></img>
                     <img src="{{ url_for('static', filename='images/return.png') }}" id = "return" class="actionButton"></img>
-                    <img src="{{ url_for('static', filename='images/play.jpg') }}" id = "play" class="actionButton"></img>
+                    <img src="{{ url_for('static', filename='images/play.png') }}" id = "play" class="actionButton"></img>
                     <img src="{{ url_for('static', filename='images/pass.png') }}" id="pass" class="actionButton"></img>
                 </div>
                 <div id = "passframe"></div>
@@ -36,14 +36,20 @@
             <div class="lobby-options">
                 <div class="option-group">
                     <h3>Skapa nytt spel</h3>
-                    <input type="text" id="create-player-name" placeholder="Ditt namn" value="Spelare 1">
-                    <button id="create-game-btn" class="btn btn-primary">Skapa Spel</button>
+                    <div class="lobby-inputs">
+                        <input type="text" id="create-player-name" placeholder="Ditt namn" value="Spelare 1" class="lobby-input">
+                        <button id="create-game-btn" class="btn btn-primary">Skapa Spel</button>
+                    </div>
+                    
                 </div>
                 <div class="option-group">
                     <h3>Gå med i spel</h3>
-                    <input type="text" id="join-game-id" placeholder="Spel ID">
-                    <input type="text" id="join-player-name" placeholder="Ditt namn" value="Spelare 2">
-                    <button id="join-game-btn" class="btn btn-primary">Gå Med i Spel</button>
+                    <div class="lobby-inputs">
+                        <input type="text" id="join-game-id" placeholder="Spel ID" class="lobby-input">
+                        <input type="text" id="join-player-name" placeholder="Ditt namn" value="Spelare 2" class="lobby-input">
+                        <button id="join-game-btn" class="btn btn-primary">Gå Med i Spel</button>
+                    </div>
+                    
                 </div>
             </div>
             <div id="waiting-room" style="display: none;">

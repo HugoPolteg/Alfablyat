@@ -135,6 +135,9 @@ function dropHandler(ev) {
     }
     let dragged = document.getElementById(tileId);
     let target = ev.target
+    if (dragged.contains(target)) {
+        return false;
+    }
     if(target.id == "passframe") {
         selectedTiles.push({
             "id" : tileId, "pass" : true
@@ -151,6 +154,7 @@ function dropHandler(ev) {
                 child.style.display = "none";
             }
         }
+        
         target.textContent = "";
         //dict {row, col, letter, value}
         let row = target.dataset.row
@@ -158,10 +162,8 @@ function dropHandler(ev) {
         selectedTiles.push({'id': tileId, 'row' : row, "col" : col, "pass" : false,
             "letter" : draggedTile['letter'], "value": draggedTile['value']})
     }
-    draggedTile = null
     
-
-
+    draggedTile = null
     target.appendChild(dragged);
     if (target.classList.contains("blackTile") || target.classList.contains("darkGreenTile")) {
         target.style.color = "black"
@@ -417,7 +419,6 @@ playButton.addEventListener("click", () =>  {
             if(!response.valid) {
                 alert(response.reason)
             } else {
-                alert(response.msg)
                 selectedTiles = []                
                 response.hand.forEach(brick => {
                     addBrick(brick['letter'], brick['value'], brick['id'], bricksContainer)
@@ -477,10 +478,11 @@ socket.on("update", (update) => {
     document.getElementById('current-player-display').textContent = `Nu spelar: ${currentPlayerName}`
     returnBricks(hand);
     loadBoard(currentBoard, currentPos)
+    alert(update.msg)
 })
 socket.on("game_end", (end) => {
     updateScoreBoard(end.scoreBoard)
-    alert(end.scoreBoard)
+    alert("Spelet är över!")
     showLobby();
 
 })
